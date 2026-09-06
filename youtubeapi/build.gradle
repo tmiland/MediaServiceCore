@@ -17,6 +17,10 @@ android {
         targetSdkVersion project.ext.targetSdkVersion
         versionCode 15
         versionName "0.1.5"
+        // TEMP: limit the test apk size (javet natives are ~105 MB per ABI)
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
 
         // required for androidTest support
         // more info: https://developer.android.com/training/testing/unit-testing/instrumented-unit-tests
@@ -60,6 +64,10 @@ dependencies {
     androidTestImplementation project(':youtubeapi')
     androidTestImplementation project(':sharedtests')
     androidTestImplementation 'junit:junit:' + junitVersion
+    // NOTE: appcompat classes bundled in the test APK extend androidx.fragment classes;
+    // without this the runner dies with NoClassDefFoundError while enumerating tests.
+    // NOTE: the real androidx.fragment is excluded globally (modded fragment-1.1.0 replaces it).
+    androidTestImplementation project(':fragment-1.1.0')
     androidTestImplementation 'androidx.test:runner:' + testXSupportVersion
     androidTestImplementation 'androidx.test:rules:' + testXSupportVersion
 
@@ -93,6 +101,11 @@ dependencies {
     stbetaImplementation project(':j2v8')
     ststableImplementation project(':j2v8')
     stfdroidImplementation 'com.eclipsesource.j2v8:j2v8:' + j2v8Version + '@aar'
+    // Node.js runtime (V8 + libuv): real timers and microtask pumping,
+    // required by the BotGuard VM. NOTE: ~105 MB native lib per ABI!
+    stbetaImplementation 'com.caoccao.javet:javet-android-node:4.0.0'
+    ststableImplementation 'com.caoccao.javet:javet-android-node:4.0.0'
+    stfdroidImplementation 'com.caoccao.javet:javet-android-node:4.0.0'
 
     // Add kotlin support libs
     implementation 'androidx.core:core-ktx:' + kotlinCoreXVersion

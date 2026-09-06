@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- javet-android-node requires minSdk 24; tests only run on real devices (API 24+) -->
+    <uses-sdk android:minSdkVersion="24" tools:overrideLibrary="com.caoccao.javet" />
+</manifest>

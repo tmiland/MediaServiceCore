@@ -1,99 +1,6 @@
 /**
- * MOD: old webview support
+ * BotGuard client helpers (strict-mode safe for embedded runtimes like javet).
  */
-if (typeof Promise === "undefined") {
-  (function () {
-    function Promise(fn) {
-      var state = "pending",
-        value,
-        deferred = [];
-
-      function resolve(newValue) {
-        try {
-          if (
-            newValue &&
-            typeof newValue.then === "function"
-          ) {
-            newValue.then(resolve, reject);
-            return;
-          }
-          state = "resolved";
-          value = newValue;
-          setTimeout(function () {
-            deferred.forEach(function (handler) {
-              handler(value);
-            });
-          }, 0);
-        } catch (e) {
-          reject(e);
-        }
-      }
-
-      function reject(reason) {
-        state = "rejected";
-        value = reason;
-        setTimeout(function () {
-          deferred.forEach(function (handler) {
-            handler(value);
-          });
-        }, 0);
-      }
-
-      this.then = function (onResolved) {
-        return new Promise(function (resolve) {
-          deferred.push(function () {
-            resolve(onResolved(value));
-          });
-          if (state === "resolved") {
-            resolve(value);
-          }
-        });
-      };
-
-      fn(resolve, reject);
-    }
-
-    window.Promise = Promise;
-  })();
-}
-
-/**
- * MOD: old webview support
- */
-if (typeof window.Symbol !== "function") {
-  (function() {
-    var idCounter = 0;
-    var globalSymbolRegistry = {};
-
-    var SymbolPolyfill = function Symbol(description) {
-      description = description === undefined ? "" : String(description);
-
-      var symbol = "__@@symbol_" + description + "_" + (idCounter++) + "__";
-
-      // create a wrapper object so typeof === "symbol" can't be faked
-      return symbol;
-    };
-
-    SymbolPolyfill.for = function(key) {
-      key = String(key);
-      if (!globalSymbolRegistry[key]) {
-        globalSymbolRegistry[key] = SymbolPolyfill(key);
-      }
-      return globalSymbolRegistry[key];
-    };
-
-    SymbolPolyfill.keyFor = function(sym) {
-      for (var key in globalSymbolRegistry) {
-        if (globalSymbolRegistry[key] === sym) {
-          return key;
-        }
-      }
-      return undefined;
-    };
-
-    window.Symbol = SymbolPolyfill;
-  })();
-}
 
 /**
  * Factory method to create and load a BotGuardClient instance.
@@ -101,24 +8,26 @@ if (typeof window.Symbol !== "function") {
  * @returns A promise that resolves to a loaded BotGuardClient instance.
  */
 function loadBotGuard(challengeData) {
-  this.vm = this[challengeData.globalName];
-  this.program = challengeData.program;
-  this.vmFunctions = {};
-  this.syncSnapshotFunction = null;
+  var state = {
+    vm: globalThis[challengeData.globalName],
+    program: challengeData.program,
+    vmFunctions: {},
+    syncSnapshotFunction: null
+  };
 
-  if (!this.vm)
+  if (!state.vm)
     throw new Error('[BotGuardClient]: VM not found in the global object');
 
-  if (!this.vm.a)
+  if (!state.vm.a)
     throw new Error('[BotGuardClient]: Could not load program');
 
-  const vmFunctionsCallback = function (
+  var vmFunctionsCallback = function (
     asyncSnapshotFunction,
     shutdownFunction,
     passEventFunction,
     checkCameraFunction
   ) {
-    this.vmFunctions = {
+    state.vmFunctions = {
       asyncSnapshotFunction: asyncSnapshotFunction,
       shutdownFunction: shutdownFunction,
       passEventFunction: passEventFunction,
@@ -126,51 +35,44 @@ function loadBotGuard(challengeData) {
     };
   };
 
-  this.syncSnapshotFunction = this.vm.a(this.program, vmFunctionsCallback, true, this.userInteractionElement, function () {/** no-op */ }, [ [], [] ])[0]
+  // The VM delivers the async snapshot function synchronously (during vm.a).
+  state.syncSnapshotFunction = state.vm.a(state.program, vmFunctionsCallback, true, undefined, function () {/** no-op */ }, [ [], [] ])[0]
 
-  // an asynchronous function runs in the background and it will eventually call
-  // `vmFunctionsCallback`, however we need to manually tell JavaScript to pass
-  // control to the things running in the background by interrupting this async
-  // function in any way, e.g. with a delay of 1ms. The loop is most probably not
-  // needed but is there just because.
+  // NOTE: the caller chain invokes `botguard.snapshot(...)` on the resolved value.
+  state.snapshot = snapshot;
+
+  // NOTE: an asynchronous function runs in the VM background and eventually
+  // calls `vmFunctionsCallback`; the event loop must be given control before
+  // the snapshot is taken (same as the WebView reference flow).
   return new Promise(function (resolve, reject) {
-    i = 0
-    refreshIntervalId = setInterval(function () {
-      if (!!this.vmFunctions.asyncSnapshotFunction) {
-        resolve(this)
+    var i = 0;
+    var refreshIntervalId = setInterval(function () {
+      if (!!state.vmFunctions.asyncSnapshotFunction) {
+        resolve(state);
         clearInterval(refreshIntervalId);
       }
       if (i >= 10000) {
-        reject("asyncSnapshotFunction is null even after 10 seconds")
+        reject(new Error('asyncSnapshotFunction is null even after 10 seconds'));
         clearInterval(refreshIntervalId);
       }
       i += 1;
     }, 1);
-  })
+  });
 }
 
 /**
  * Takes a snapshot asynchronously.
  * @returns The snapshot result.
- * @example
- * ```ts
- * const result = await botguard.snapshot({
- *   contentBinding: {
- *     c: "a=6&a2=10&b=SZWDwKVIuixOp7Y4euGTgwckbJA&c=1729143849&d=1&t=7200&c1a=1&c6a=1&c6b=1&hh=HrMb5mRWTyxGJphDr0nW2Oxonh0_wl2BDqWuLHyeKLo",
- *     e: "ENGAGEMENT_TYPE_VIDEO_LIKE",
- *     encryptedVideoId: "P-vC09ZJcnM"
- *    }
- * });
- *
- * console.log(result);
- * ```
  */
 function snapshot(args) {
+  // NOTE: `this` inside the promise executor is undefined in strict mode,
+  // so the vmFunctions object must be captured in the outer scope.
+  var vmFunctions = this.vmFunctions;
   return new Promise(function (resolve, reject) {
-    if (!this.vmFunctions.asyncSnapshotFunction)
+    if (!vmFunctions.asyncSnapshotFunction)
       return reject(new Error('[BotGuardClient]: Async snapshot function not found'));
 
-    this.vmFunctions.asyncSnapshotFunction(function (response) { resolve(response) }, [
+    vmFunctions.asyncSnapshotFunction(function (response) { resolve(response) }, [
       args.contentBinding,
       args.signedTimestamp,
       args.webPoSignalOutput,
@@ -186,18 +88,28 @@ function runBotGuard(challengeData) {
     new Function(interpreterJavascript)();
   } else throw new Error('Could not load VM');
 
-  const webPoSignalOutput = [];
+  var webPoSignalOutput = [];
   return loadBotGuard({
     globalName: challengeData.globalName,
-    globalObj: this,
+    globalObj: globalThis,
     program: challengeData.program
   }).then(function (botguard) {
     return botguard.snapshot({ webPoSignalOutput: webPoSignalOutput })
   }).then(function (botguardResponse) {
     if (!webPoSignalOutput.length) {
-       throw new Error('webPoSignalOutput is empty');
+      // Decode the response to reveal the VM's recorded errors (if any).
+      var respHead = '';
+      try {
+        var r = String(botguardResponse).replace(/-/g, '+').replace(/_/g, '/');
+        respHead = atob(r).replace(/[^ -~]/g, '.');
+      } catch (e) {
+        respHead = 'raw-head=' + String(botguardResponse).slice(0, 120) + '; atob-err=' + e;
+      }
+      throw new Error('webPoSignalOutput is empty; respLen=' +
+        (botguardResponse ? String(botguardResponse).length : 'null') +
+        '; resp=' + respHead);
     }
-    return { webPoSignalOutput: webPoSignalOutput, botguardResponse: botguardResponse }
+    return { webPoSignalOutput: webPoSignalOutput, botguardResponse: botguardResponse };
   })
 }
 
