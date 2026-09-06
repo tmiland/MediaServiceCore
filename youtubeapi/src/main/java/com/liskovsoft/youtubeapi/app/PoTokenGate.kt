@@ -2,7 +2,6 @@ package com.liskovsoft.youtubeapi.app
 
 import com.liskovsoft.sharedutils.mylogger.Log
 import com.liskovsoft.youtubeapi.app.potoken.PoTokenService
-import com.liskovsoft.youtubeapi.app.potokencloud.PoTokenCloudService
 import com.liskovsoft.youtubeapi.app.potokennp2.PoTokenProviderImpl
 import com.liskovsoft.youtubeapi.app.potokennp2.core.PoTokenResult
 import com.liskovsoft.youtubeapi.app.potokennp2.misc.selectFactory
@@ -61,8 +60,7 @@ internal object PoTokenGate {
             }
         }
 
-        // NOTE: cached value only (the cloud endpoints are placeholders).
-        return PoTokenCloudService.getPoToken()
+        return null
     }
 
     /**
@@ -78,12 +76,6 @@ internal object PoTokenGate {
             } catch (e: Exception) {
                 Log.e(TAG, "Can't preload web poToken...", e)
                 null
-            }
-        } else {
-            try {
-                PoTokenCloudService.updatePoToken()
-            } catch (e: Exception) {
-                Log.e(TAG, "Can't preload cloud web poToken...", e)
             }
         }
     }
@@ -156,8 +148,7 @@ internal object PoTokenGate {
         if (PoTokenProviderImpl.isWebPotSupported) {
             mWebPoToken = null
             PoTokenProviderImpl.resetCache()
-        } else
-            PoTokenCloudService.resetCache()
+        }
 
         mCacheResetTimeMs = currentTimeMs + CACHE_RESET_TIME_MS
 
